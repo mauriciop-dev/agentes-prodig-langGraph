@@ -36,7 +36,8 @@ export type Json =
   | Json[]
 
 // Definición de la Base de Datos para Supabase
-export interface Database {
+// Usamos 'type' en lugar de 'interface' para mejor compatibilidad con inferencia
+export type Database = {
   public: {
     Tables: {
       sessions: {
