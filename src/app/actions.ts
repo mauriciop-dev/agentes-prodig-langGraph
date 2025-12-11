@@ -5,9 +5,10 @@ import { createServerSupabaseAdmin } from '@/lib/supabase/supabase-client';
 import { ChatMessage, Database, SessionData } from '@/lib/types';
 
 // Initialize Gemini safely
+// We verify both standard API_KEY and user specific GEMINI_API_KEY
 const getAI = () => {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
+  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("API_KEY is not set in environment variables");
   return new GoogleGenAI({ apiKey });
 };
 
@@ -60,6 +61,7 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
   // FIX: Explicitly type 'updates' to match the Database Update definition minus ID
   const updateState = async (updates: Database['public']['Tables']['sessions']['Update']) => {
     // We explicitly exclude 'id' from the update payload if it somehow got in, though the type helps.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { id, ...cleanUpdates } = updates as any; 
     await supabase.from('sessions').update(cleanUpdates).eq('id', sessionId);
   };
