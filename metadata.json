@@ -1,0 +1,5 @@
+{
+  "name": "Consultores Empresariales IA",
+  "description": "A Next.js multi-agent system simulating a business consultancy workflow using Google Gemini and Supabase.",
+  "requestFramePermissions": []
+}
