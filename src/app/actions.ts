@@ -2,7 +2,7 @@
 
 import { GoogleGenAI } from '@google/genai';
 import { createServerSupabaseAdmin } from '@/lib/supabase/supabase-client';
-import { ChatMessage, SessionData } from '@/lib/types';
+import { ChatMessage, SessionData, Database } from '@/lib/types';
 
 // Initialize Gemini
 // NOTE: We initialize strictly inside the action or use a getter to ensure Env vars are present in Vercel Runtime
@@ -42,7 +42,8 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
   }
 
   // Helper to update DB state
-  const updateState = async (updates: Partial<SessionData>) => {
+  // FIX: Use the specific Update type from Database definition to prevent TS mismatch
+  const updateState = async (updates: Database['public']['Tables']['sessions']['Update']) => {
     await supabase.from('sessions').update(updates).eq('id', sessionId);
   };
 
@@ -89,7 +90,8 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
       contents: `Analiza esta información de la empresa: "${session.company_info || userMessage}". Identifica 3 vectores de ataque o mejora técnica.`,
     });
     
-    const pedroText1 = pedroResponse1.text;
+    // Fallback to empty string if text is undefined to satisfy strict TS types
+    const pedroText1 = pedroResponse1.text || 'Sin respuesta del agente.';
     researchResults.push(pedroText1);
     
     currentHistory = await appendMessage(
@@ -113,7 +115,7 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
         contents: `Basado en tu análisis anterior: "${pedroText1}", profundiza en la infraestructura de datos necesaria. Sé muy específico tecnicamente.`,
       });
       
-      const pedroText2 = pedroResponse2.text;
+      const pedroText2 = pedroResponse2.text || 'Sin respuesta del agente.';
       researchResults.push(pedroText2);
 
       currentHistory = await appendMessage(
@@ -143,7 +145,7 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
       `,
     });
 
-    const juanText = juanResponse.text;
+    const juanText = juanResponse.text || 'Sin reporte generado.';
 
     currentHistory = await appendMessage(
       { role: 'juan', content: juanText, timestamp: Date.now() },
