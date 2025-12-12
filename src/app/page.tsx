@@ -12,9 +12,13 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
-  const supabase = createBrowserSupabaseClient();
+  // FIX: Inicializar Supabase una sola vez usando useState con inicializador perezoso.
+  // Esto evita que se cree una nueva instancia en cada render, rompiendo el bucle infinito del useEffect.
+  const [supabase] = useState(() => createBrowserSupabaseClient());
 
   useEffect(() => {
+    let mounted = true;
+
     const initSession = async () => {
       try {
         setLoading(true);
@@ -26,10 +30,18 @@ export default function Home() {
         const { data: authData, error: authError } = await supabase.auth.signInAnonymously();
         
         if (authError) {
-          // FALLBACK: Si Auth falla (ej. desactivado en dashboard), usamos un ID local.
-          // Esto permite que la demo funcione sin configurar Auth, asumiendo que no hay FK estricta en DB.
           console.warn("Auth Anónimo no disponible. Usando ID local fallback:", authError.message);
-          userId = crypto.randomUUID(); 
+          // FALLBACK: Generar un UUID válido si falla Auth.
+          // Usamos crypto.randomUUID() si está disponible para cumplir con tipos 'uuid' en DB.
+          if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+            userId = crypto.randomUUID();
+          } else {
+             // Fallback muy básico para navegadores antiguos (aunque Next.js suele tener polyfills)
+             userId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+          }
         } else {
           userId = authData.user?.id || crypto.randomUUID();
         }
@@ -37,17 +49,27 @@ export default function Home() {
         // 2. Crear Sesión en Servidor (Bypaseando RLS)
         const newSession = await createSession(userId);
 
-        setSessionData(newSession);
-        setSessionId(newSession.id);
+        if (mounted) {
+          setSessionData(newSession);
+          setSessionId(newSession.id);
+        }
       } catch (err: any) {
         console.error("Initialization Error:", err);
-        setErrorMsg(err.message || "Error desconocido al iniciar sesión.");
+        if (mounted) {
+          setErrorMsg(err.message || "Error desconocido al iniciar sesión.");
+        }
       } finally {
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
     initSession();
+
+    return () => {
+      mounted = false;
+    };
   }, [supabase]);
 
   if (loading) {
@@ -66,6 +88,15 @@ export default function Home() {
           <h3 className="text-xl font-bold text-gray-800 mb-2">Error de Inicialización</h3>
           <p className="text-gray-600 mb-6">{errorMsg || "No se pudo conectar con el servidor."}</p>
           
+          <div className="text-left bg-gray-100 p-4 rounded text-xs text-gray-500 mb-4 overflow-auto max-h-32">
+             <p className="font-bold">Detalles:</p>
+             {errorMsg?.includes('violates foreign key constraint') ? (
+               <p>La base de datos requiere un usuario real (Foreign Key). La autenticación anónima está desactivada en Supabase y el ID generado localmente no existe en la tabla `auth.users`.</p>
+             ) : (
+               <p>{errorMsg}</p>
+             )}
+          </div>
+
           <button 
             onClick={() => window.location.reload()}
             className="bg-cyan-600 text-white px-6 py-2 rounded-lg hover:bg-cyan-700 transition-colors w-full"

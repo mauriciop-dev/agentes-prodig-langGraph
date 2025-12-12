@@ -15,7 +15,9 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const supabase = createBrowserSupabaseClient();
+  
+  // FIX: Memoizar instancia de Supabase
+  const [supabase] = useState(() => createBrowserSupabaseClient());
 
   // Scroll to bottom on new messages
   const scrollToBottom = () => {
