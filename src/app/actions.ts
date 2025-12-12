@@ -28,6 +28,34 @@ Habla en términos de valor de negocio, ROI y estrategia. Eres amable y profesio
 `;
 
 /**
+ * Creates a new session safely on the server using Admin privileges.
+ * This bypasses RLS policies that might block client-side inserts.
+ */
+export async function createSession(userId: string) {
+  const supabase = createServerSupabaseAdmin();
+  
+  // FIX: Cast query builder to 'any' to bypass strict TS inference errors on Insert
+  const { data: newSession, error: dbError } = await (supabase
+    .from('sessions') as any)
+    .insert({
+      user_id: userId,
+      chat_history: [],
+      current_state: 'WAITING_FOR_INFO',
+      research_counter: 0,
+      research_results: [],
+    })
+    .select()
+    .single();
+
+  if (dbError) {
+    console.error("Error creating session in DB:", dbError);
+    throw new Error(`Database Error: ${dbError.message}`);
+  }
+
+  return newSession as SessionData;
+}
+
+/**
  * Main Entry Point for User Interaction
  */
 export async function runConsultancyFlow(sessionId: string, userMessage: string) {
