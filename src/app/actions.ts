@@ -65,10 +65,14 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
   // Helper to update DB state
   // FIX: Explicitly type 'updates' to match the Database Update definition minus ID
   const updateState = async (updates: Database['public']['Tables']['sessions']['Update']) => {
-    // We explicitly exclude 'id' from the update payload if it somehow got in, though the type helps.
+    // We explicitly exclude 'id' from the update payload if it somehow got in.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { id, ...cleanUpdates } = updates as any; 
-    await supabase.from('sessions').update(cleanUpdates).eq('id', sessionId);
+    
+    // CRITICAL FIX: We cast the query builder to 'any' to bypass the "Argument of type 'any' is not assignable to parameter of type 'never'" error.
+    // This is necessary because TS inference for Supabase updates can be overly strict in Server Actions.
+    const queryBuilder = supabase.from('sessions') as any;
+    await queryBuilder.update(cleanUpdates).eq('id', sessionId);
   };
 
   // Helper to append message
