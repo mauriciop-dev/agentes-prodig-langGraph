@@ -16,7 +16,6 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
   const [isSending, setIsSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  // FIX: Memoizar instancia de Supabase
   const [supabase] = useState(() => createBrowserSupabaseClient());
 
   // Scroll to bottom on new messages
@@ -28,9 +27,6 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
     scrollToBottom();
   }, [sessionData.chat_history]);
 
-  // Realtime Subscription
-  // Note: If Auth fails (random UUID mode) and RLS is strict, this might not receive events.
-  // That's why we also update state in handleSubmit.
   useEffect(() => {
     const channel = supabase
       .channel('schema-db-changes')
@@ -73,16 +69,30 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
 
     try {
       // Trigger Server Action
-      const updatedSession = await runConsultancyFlow(sessionId, msg);
-      // Manually update state with final result (fallback for Realtime issues)
-      setSessionData(updatedSession);
-      if (updatedSession.current_state === 'FINISHED') {
+      const response = await runConsultancyFlow(sessionId, msg);
+      
+      if (response.success && response.data) {
+        setSessionData(response.data);
+        if (response.data.current_state === 'FINISHED') {
+          setIsSending(false);
+        }
+      } else {
+        console.error('Flow Error:', response.error);
+        // Show error message in chat
+        const errorMsg: ChatMessage = { 
+          role: 'system', 
+          content: `Error: ${response.error || "Error de comunicación."}`, 
+          timestamp: Date.now() 
+        };
+        setSessionData(prev => ({
+          ...prev,
+          chat_history: [...prev.chat_history, errorMsg]
+        }));
         setIsSending(false);
       }
     } catch (err) {
       console.error('Error triggering flow:', err);
       setIsSending(false);
-      // Optional: Revert optimistic update or show error toast
     }
   };
 
@@ -128,6 +138,7 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
           const isUser = msg.role === 'user';
           const isPedro = msg.role === 'pedro';
           const isJuan = msg.role === 'juan';
+          const isSystem = msg.role === 'system';
 
           return (
             <div
@@ -142,10 +153,10 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
                     ? 'bg-emerald-50 text-gray-800 border-l-4 border-emerald-500'
                     : isJuan
                     ? 'bg-sky-50 text-gray-800 border-l-4 border-sky-500'
-                    : 'bg-gray-100 text-gray-600'
+                    : 'bg-red-50 text-red-600 border border-red-200'
                 }`}
               >
-                {!isUser && (
+                {!isUser && !isSystem && (
                   <div className="mb-2 flex items-center gap-2">
                     <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded ${
                         isPedro ? 'bg-emerald-100 text-emerald-700' : 'bg-sky-100 text-sky-700'

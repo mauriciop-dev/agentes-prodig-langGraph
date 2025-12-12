@@ -1,3 +1,4 @@
+
 export type AgentRole = 'user' | 'pedro' | 'juan' | 'system';
 
 export interface ChatMessage {
@@ -24,6 +25,12 @@ export interface SessionData {
   current_state: WorkflowState;
   research_counter: number;
   created_at?: string;
+}
+
+export interface ActionResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
 }
 
 // Supabase Helper Types

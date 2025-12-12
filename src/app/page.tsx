@@ -12,8 +12,6 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
-  // FIX: Inicializar Supabase una sola vez usando useState con inicializador perezoso.
-  // Esto evita que se cree una nueva instancia en cada render, rompiendo el bucle infinito del useEffect.
   const [supabase] = useState(() => createBrowserSupabaseClient());
 
   useEffect(() => {
@@ -26,17 +24,14 @@ export default function Home() {
 
         let userId: string;
 
-        // 1. Intentar Auth Anónimo
+        // 1. Try Anonymous Auth
         const { data: authData, error: authError } = await supabase.auth.signInAnonymously();
         
         if (authError) {
-          console.warn("Auth Anónimo no disponible. Usando ID local fallback:", authError.message);
-          // FALLBACK: Generar un UUID válido si falla Auth.
-          // Usamos crypto.randomUUID() si está disponible para cumplir con tipos 'uuid' en DB.
+          console.warn("Auth Anónimo no disponible. Fallback UUID.", authError.message);
           if (typeof crypto !== 'undefined' && crypto.randomUUID) {
             userId = crypto.randomUUID();
           } else {
-             // Fallback muy básico para navegadores antiguos (aunque Next.js suele tener polyfills)
              userId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
                 var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
                 return v.toString(16);
@@ -46,13 +41,17 @@ export default function Home() {
           userId = authData.user?.id || crypto.randomUUID();
         }
 
-        // 2. Crear Sesión en Servidor (Bypaseando RLS)
-        const newSession = await createSession(userId);
+        // 2. Create Session (Server Action)
+        const response = await createSession(userId);
 
-        if (mounted) {
-          setSessionData(newSession);
-          setSessionId(newSession.id);
+        if (!mounted) return;
+
+        if (!response.success || !response.data) {
+          throw new Error(response.error || "Falló la creación de sesión sin mensaje específico.");
         }
+
+        setSessionData(response.data);
+        setSessionId(response.data.id);
       } catch (err: any) {
         console.error("Initialization Error:", err);
         if (mounted) {
@@ -86,15 +85,18 @@ export default function Home() {
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
         <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full text-center border-l-4 border-red-500">
           <h3 className="text-xl font-bold text-gray-800 mb-2">Error de Inicialización</h3>
-          <p className="text-gray-600 mb-6">{errorMsg || "No se pudo conectar con el servidor."}</p>
+          <div className="bg-red-50 text-red-700 p-4 rounded-lg mb-6 text-left overflow-auto max-h-48 text-sm">
+            <p className="font-bold mb-1">Detalle del error:</p>
+            <p>{errorMsg}</p>
+          </div>
           
-          <div className="text-left bg-gray-100 p-4 rounded text-xs text-gray-500 mb-4 overflow-auto max-h-32">
-             <p className="font-bold">Detalles:</p>
-             {errorMsg?.includes('violates foreign key constraint') ? (
-               <p>La base de datos requiere un usuario real (Foreign Key). La autenticación anónima está desactivada en Supabase y el ID generado localmente no existe en la tabla `auth.users`.</p>
-             ) : (
-               <p>{errorMsg}</p>
-             )}
+          <div className="text-left bg-gray-100 p-4 rounded text-xs text-gray-500 mb-6">
+             <p className="font-bold">Guía de Solución:</p>
+             <ul className="list-disc pl-4 space-y-1 mt-1">
+               <li>Si el error menciona <code>SUPABASE_SERVICE_ROLE_KEY</code>, agrégala en las variables de entorno de Vercel (Settings &gt; Environment Variables).</li>
+               <li>Si el error menciona <code>Database Error</code>, verifica que la tabla <code>sessions</code> existe en Supabase.</li>
+               <li>Si el error menciona <code>Auth Error</code>, habilita "Anonymous Sign-ins" en Supabase Auth Settings.</li>
+             </ul>
           </div>
 
           <button 
