@@ -27,6 +27,8 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
   }, [sessionData.chat_history]);
 
   // Realtime Subscription
+  // Note: If Auth fails (random UUID mode) and RLS is strict, this might not receive events.
+  // That's why we also update state in handleSubmit.
   useEffect(() => {
     const channel = supabase
       .channel('schema-db-changes')
@@ -56,16 +58,29 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
     e.preventDefault();
     if (!inputValue.trim() || isSending) return;
 
-    // Optimistic UI could go here, but we rely on Realtime for accuracy in this multi-agent setup
     setIsSending(true);
     const msg = inputValue;
     setInputValue('');
 
+    // Optimistic Update for User Message
+    const userMsg: ChatMessage = { role: 'user', content: msg, timestamp: Date.now() };
+    setSessionData(prev => ({
+      ...prev,
+      chat_history: [...prev.chat_history, userMsg]
+    }));
+
     try {
-      await runConsultancyFlow(sessionId, msg);
+      // Trigger Server Action
+      const updatedSession = await runConsultancyFlow(sessionId, msg);
+      // Manually update state with final result (fallback for Realtime issues)
+      setSessionData(updatedSession);
+      if (updatedSession.current_state === 'FINISHED') {
+        setIsSending(false);
+      }
     } catch (err) {
       console.error('Error triggering flow:', err);
       setIsSending(false);
+      // Optional: Revert optimistic update or show error toast
     }
   };
 

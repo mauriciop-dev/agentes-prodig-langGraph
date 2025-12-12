@@ -58,7 +58,7 @@ export async function createSession(userId: string) {
 /**
  * Main Entry Point for User Interaction
  */
-export async function runConsultancyFlow(sessionId: string, userMessage: string) {
+export async function runConsultancyFlow(sessionId: string, userMessage: string): Promise<SessionData> {
   const supabase = createServerSupabaseAdmin();
   const ai = getAI();
 
@@ -74,7 +74,6 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
   }
 
   // FORCE CAST: TS infers 'never' sometimes on single() depending on exact DB type match.
-  // We cast to any to unblock the build. We know the shape matches.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const dbSession = rawSession as any;
 
@@ -98,7 +97,6 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
     const { id, ...cleanUpdates } = updates as any; 
     
     // CRITICAL FIX: We cast the query builder to 'any' to bypass the "Argument of type 'any' is not assignable to parameter of type 'never'" error.
-    // This is necessary because TS inference for Supabase updates can be overly strict in Server Actions.
     const queryBuilder = supabase.from('sessions') as any;
     await queryBuilder.update(cleanUpdates).eq('id', sessionId);
   };
@@ -212,4 +210,8 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
       currentHistory
     );
   }
+
+  // Final fetch to return complete state
+  const { data: finalSession } = await supabase.from('sessions').select('*').eq('id', sessionId).single();
+  return finalSession as unknown as SessionData;
 }
