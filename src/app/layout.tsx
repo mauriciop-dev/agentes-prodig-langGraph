@@ -1,3 +1,5 @@
+// Fix: Import React to resolve 'Cannot find namespace React' error
+import React from 'react';
 import './globals.css';
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';

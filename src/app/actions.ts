@@ -1,14 +1,14 @@
 'use server';
 
-import { GoogleGenAI } from '@google/genai';
+// Fix: Use correct import and double quotes as per guidelines
+import { GoogleGenAI } from "@google/genai";
 import { createServerSupabaseAdmin } from '@/lib/supabase/supabase-client';
 import { ChatMessage, Database, SessionData, ActionResponse } from '@/lib/types';
 
-// Initialize Gemini safely
+// Initialize Gemini safely using process.env.API_KEY exclusively
 const getAI = () => {
-  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("API_KEY is missing. Check your environment variables.");
-  return new GoogleGenAI({ apiKey });
+  // Fix: Exclusively use process.env.API_KEY and use named parameter initialization
+  return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
 // System Prompts
@@ -82,12 +82,8 @@ export async function createSession(userId: string): Promise<ActionResponse<Sess
 export async function runConsultancyFlow(sessionId: string, userMessage: string): Promise<ActionResponse<SessionData>> {
   try {
     const supabase = createServerSupabaseAdmin();
-    let ai;
-    try {
-      ai = getAI();
-    } catch (e: any) {
-       return { success: false, error: e.message };
-    }
+    // Fix: Create AI instance immediately before usage
+    const ai = getAI();
 
     // 1. Fetch current session state
     const { data: rawSession, error } = await supabase
@@ -148,8 +144,10 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
     // --- Step 2: Agent Logic ---
     try {
       // === AGENT: PEDRO ===
+      // Fix: Use 'gemini-3-pro-preview' for complex engineering analysis.
+      // Access response text using the .text property (not a method).
       const pedroResponse1 = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3-pro-preview',
         config: { systemInstruction: PEDRO_SYSTEM_PROMPT },
         contents: `Analiza esta información de la empresa: "${session.company_info || userMessage}". Identifica 3 vectores de ataque o mejora técnica.`,
       });
@@ -172,8 +170,9 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
 
       // === DECISION NODE ===
       if (researchCounter < 2) {
+        // Fix: Use 'gemini-3-pro-preview' for consistent advanced reasoning.
         const pedroResponse2 = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-3-pro-preview',
           config: { systemInstruction: PEDRO_SYSTEM_PROMPT },
           contents: `Basado en tu análisis anterior: "${pedroText1}", profundiza en la infraestructura de datos necesaria. Sé muy específico técnicamente.`,
         });
@@ -196,8 +195,9 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
       // === AGENT: JUAN ===
       await updateState({ current_state: 'START_REPORT' });
 
+      // Fix: Use 'gemini-3-pro-preview' for strategic reporting and business synthesis.
       const juanResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3-pro-preview',
         config: { systemInstruction: JUAN_SYSTEM_PROMPT },
         contents: `
           La información de la empresa es: "${session.company_info || userMessage}".
