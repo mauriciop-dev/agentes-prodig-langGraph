@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase/supabase-client';
 import { SessionData, ChatMessage } from '@/lib/types';
 import { runConsultancyFlow } from '@/app/actions';
+import { marked } from 'marked';
 
 interface ChatUIProps {
   sessionId: string;
@@ -18,7 +19,14 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
   
   const [supabase] = useState(() => createBrowserSupabaseClient());
 
-  // Scroll to bottom on new messages
+  // Configurar marked para seguridad y saltos de línea
+  useEffect(() => {
+    marked.setOptions({
+      breaks: true,
+      gfm: true,
+    });
+  }, []);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -60,7 +68,6 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
     const msg = inputValue;
     setInputValue('');
 
-    // Optimistic Update for User Message
     const userMsg: ChatMessage = { role: 'user', content: msg, timestamp: Date.now() };
     setSessionData(prev => ({
       ...prev,
@@ -68,7 +75,6 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
     }));
 
     try {
-      // Trigger Server Action
       const response = await runConsultancyFlow(sessionId, msg);
       
       if (response.success && response.data) {
@@ -77,8 +83,6 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
           setIsSending(false);
         }
       } else {
-        console.error('Flow Error:', response.error);
-        // Show error message in chat
         const errorMsg: ChatMessage = { 
           role: 'system', 
           content: `Error: ${response.error || "Error de comunicación."}`, 
@@ -96,7 +100,6 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
     }
   };
 
-  // Status Indicator helper
   const getStatusText = (state: string) => {
     switch (state) {
       case 'WAITING_FOR_INFO': return 'Esperando información...';
@@ -108,6 +111,16 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
     }
   };
 
+  // Función para renderizar el contenido de forma segura
+  const renderMessageContent = (content: string) => {
+    try {
+      const html = marked.parse(content);
+      return { __html: html };
+    } catch (e) {
+      return { __html: content };
+    }
+  };
+
   return (
     <div className="flex flex-col h-[85vh] max-w-4xl mx-auto bg-white shadow-2xl rounded-xl overflow-hidden border border-gray-200">
       
@@ -115,7 +128,7 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
       <div className="bg-gray-900 p-4 border-b border-gray-800 flex justify-between items-center">
         <div>
           <h2 className="text-white font-bold text-lg">Consultores Empresariales IA</h2>
-          <p className="text-gray-400 text-xs uppercase tracking-wider">Sistema Multi-Agente</p>
+          <p className="text-gray-400 text-xs uppercase tracking-wider">Pedro & Juan Consulting</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`h-2.5 w-2.5 rounded-full ${sessionData.current_state === 'FINISHED' ? 'bg-green-500' : 'bg-cyan-500 animate-pulse'}`}></span>
@@ -128,9 +141,14 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto p-6 bg-gray-50 space-y-6">
         {sessionData.chat_history.length === 0 && (
-          <div className="text-center text-gray-400 mt-20">
-            <p className="text-lg">Bienvenido.</p>
-            <p className="text-sm">Por favor, describe tu empresa o pega una URL para comenzar el análisis.</p>
+          <div className="text-center text-gray-400 mt-20 flex flex-col items-center">
+            <div className="bg-gray-200 p-4 rounded-full mb-4">
+              <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
+              </svg>
+            </div>
+            <p className="text-lg font-medium text-gray-600">Bienvenido a la Consultoría IA</p>
+            <p className="text-sm max-w-xs">Describe tu empresa o proporciona una URL para que Pedro y Juan comiencen el análisis.</p>
           </div>
         )}
 
@@ -146,7 +164,7 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
               className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
             >
               <div
-                className={`max-w-[80%] p-5 rounded-xl text-sm leading-relaxed shadow-sm relative ${
+                className={`max-w-[85%] p-5 rounded-xl text-sm leading-relaxed shadow-sm relative ${
                   isUser
                     ? 'bg-white border border-gray-200 text-gray-800'
                     : isPedro
@@ -158,16 +176,17 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
               >
                 {!isUser && !isSystem && (
                   <div className="mb-2 flex items-center gap-2">
-                    <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded ${
-                        isPedro ? 'bg-emerald-100 text-emerald-700' : 'bg-sky-100 text-sky-700'
+                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded shadow-sm ${
+                        isPedro ? 'bg-emerald-500 text-white' : 'bg-sky-500 text-white'
                     }`}>
-                      {isPedro ? 'Ing. Pedro (IA)' : 'Juan (PM)'}
+                      {isPedro ? 'ING. PEDRO' : 'JUAN (STRATEGY)'}
                     </span>
                   </div>
                 )}
-                <div className="whitespace-pre-wrap markdown-body">
-                  {msg.content}
-                </div>
+                <div 
+                  className="markdown-body"
+                  dangerouslySetInnerHTML={renderMessageContent(msg.content)}
+                />
               </div>
             </div>
           );
@@ -177,7 +196,7 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
 
       {/* Input Area */}
       <div className="p-4 bg-white border-t border-gray-200">
-        <form onSubmit={handleSubmit} className="flex gap-4">
+        <form onSubmit={handleSubmit} className="flex gap-3">
           <input
             type="text"
             value={inputValue}
@@ -185,19 +204,24 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
             disabled={sessionData.current_state !== 'WAITING_FOR_INFO' && sessionData.current_state !== 'FINISHED'}
             placeholder={
                 sessionData.current_state === 'FINISHED' 
-                ? "La sesión ha finalizado. Refresca para comenzar de nuevo." 
-                : sessionData.current_state !== 'WAITING_FOR_INFO'
-                ? "Los agentes están trabajando..."
-                : "Describe tu empresa o problema..."
+                ? "Consulta terminada. Refresca para iniciar otra." 
+                : isSending 
+                ? "Los agentes están procesando tu solicitud..."
+                : "Ej: Somos una startup de logística en México buscando optimizar rutas..."
             }
-            className="flex-1 p-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-600 focus:border-transparent transition-all disabled:bg-gray-100 disabled:text-gray-400"
+            className="flex-1 p-3.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-600 focus:border-transparent transition-all disabled:bg-gray-100 disabled:text-gray-400"
           />
           <button
             type="submit"
-            disabled={!inputValue.trim() || (sessionData.current_state !== 'WAITING_FOR_INFO' && sessionData.current_state !== 'FINISHED')}
-            className="bg-cyan-600 hover:bg-cyan-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+            disabled={!inputValue.trim() || isSending || (sessionData.current_state !== 'WAITING_FOR_INFO' && sessionData.current_state !== 'FINISHED')}
+            className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-7 py-3 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md active:scale-95"
           >
-            Enviar
+            {isSending ? (
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                <span>Analizando...</span>
+              </div>
+            ) : "Enviar"}
           </button>
         </form>
       </div>
