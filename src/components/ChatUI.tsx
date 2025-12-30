@@ -22,7 +22,7 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
   const [isSending, setIsSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  const [supabase] = useState(() => createBrowserSupabaseClient());
+  const supabase = createBrowserSupabaseClient();
 
   useEffect(() => {
     marked.setOptions({ breaks: true, gfm: true });
@@ -37,13 +37,21 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
   }, [sessionData.chat_history]);
 
   useEffect(() => {
+    if (!sessionId) return;
+    
     const channel = supabase
-      .channel('schema-db-changes')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sessions', filter: `id=eq.${sessionId}` }, (payload) => {
+      .channel(`session-${sessionId}`)
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        schema: 'public', 
+        table: 'sessions', 
+        filter: `id=eq.${sessionId}` 
+      }, (payload) => {
           setSessionData(payload.new as SessionData);
           if (payload.new.current_state === 'FINISHED') setIsSending(false);
       })
       .subscribe();
+      
     return () => { supabase.removeChannel(channel); };
   }, [sessionId, supabase]);
 
@@ -51,7 +59,6 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
     if (!msg.trim() || isSending) return;
     setIsSending(true);
     
-    // Optimistic Update
     const userMsg: ChatMessage = { role: 'user', content: msg, timestamp: Date.now() };
     setSessionData(prev => ({ ...prev, chat_history: [...prev.chat_history, userMsg] }));
 
@@ -60,7 +67,7 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
       if (response.success && response.data) {
         setSessionData(response.data);
       } else {
-        const errorMsg: ChatMessage = { role: 'system', content: `Error: ${response.error || "Error de comunicación."}`, timestamp: Date.now() };
+        const errorMsg: ChatMessage = { role: 'system', content: `**Error:** ${response.error || "Ocurrió un problema técnico."}`, timestamp: Date.now() };
         setSessionData(prev => ({ ...prev, chat_history: [...prev.chat_history, errorMsg] }));
       }
     } catch (err) {
@@ -77,27 +84,31 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
   };
 
   const handleFormSubmit = (data: Record<string, string>) => {
-    const formattedData = Object.entries(data).map(([k, v]) => `${k.toUpperCase()}: ${v}`).join('\n');
-    sendMessage(`FORM_SUBMISSION:\n${formattedData}`);
+    const formattedData = Object.entries(data)
+      .map(([k, v]) => `${k.toUpperCase()}: ${v}`)
+      .join(' | ');
+    sendMessage(`He completado el diagnóstico con los siguientes datos: ${formattedData}`);
   };
 
   const renderMessageContent = (content: string) => {
     let a2ui: A2UIResponse | null = null;
     try {
-      if (content.startsWith('{')) {
+      if (content.trim().startsWith('{')) {
         a2ui = JSON.parse(content);
       }
     } catch (e) {
-      // Fallback to text if not valid JSON
+      // No es JSON, se trata como texto plano
     }
 
-    const messageText = a2ui ? a2ui.message : content;
+    const messageText = a2ui?.message || content;
     const html = marked.parse(messageText);
 
     return (
       <div className="w-full">
         <div className="markdown-body" dangerouslySetInnerHTML={{ __html: html as string }} />
-        {a2ui?.componentName === 'BusinessForm' && (
+        
+        {/* Renderizado condicional seguro de componentes A2UI */}
+        {a2ui?.componentName === 'BusinessForm' && a2ui.data && (
           <BusinessForm 
             title={a2ui.data.title} 
             fields={a2ui.data.fields} 
@@ -105,13 +116,13 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
             disabled={isSending}
           />
         )}
-        {a2ui?.componentName === 'ImpactChart' && (
+        {a2ui?.componentName === 'ImpactChart' && a2ui.data && (
           <ImpactChart {...a2ui.data} />
         )}
-        {a2ui?.componentName === 'ProposalCard' && (
+        {a2ui?.componentName === 'ProposalCard' && a2ui.data && (
           <ProposalCard {...a2ui.data} />
         )}
-        {a2ui?.componentName === 'StepProcess' && (
+        {a2ui?.componentName === 'StepProcess' && a2ui.data && (
           <StepProcess {...a2ui.data} />
         )}
       </div>
@@ -123,12 +134,12 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
       <div className="bg-gray-950 p-4 border-b border-gray-800 flex justify-between items-center shrink-0">
         <div>
           <h2 className="text-white font-bold text-lg tracking-tight">Consultores Empresariales <span className="text-cyan-400">IA</span></h2>
-          <p className="text-gray-500 text-[10px] uppercase font-black tracking-widest">A2UI GENERATIVE INTERFACE v2.0</p>
+          <p className="text-gray-500 text-[10px] uppercase font-black tracking-widest">A2UI PROTOCOL ACTIVE</p>
         </div>
         <div className="flex items-center gap-2 bg-gray-900 px-3 py-1.5 rounded-full border border-gray-800">
-          <span className={`h-2 w-2 rounded-full ${sessionData.current_state === 'FINISHED' ? 'bg-green-500' : 'bg-cyan-500 animate-pulse'}`}></span>
+          <span className={`h-2 w-2 rounded-full ${sessionData.current_state === 'FINISHED' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-cyan-500 animate-pulse shadow-[0_0_8px_rgba(6,182,212,0.6)]'}`}></span>
           <span className="text-cyan-100 text-[10px] font-mono font-bold uppercase">
-            {sessionData.current_state}
+            {sessionData.current_state.replace(/_/g, ' ')}
           </span>
         </div>
       </div>
@@ -141,17 +152,17 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
 
           return (
             <div key={idx} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[90%] p-6 rounded-2xl shadow-sm border ${
-                  isUser ? 'bg-white border-slate-200 text-slate-700' :
-                  isPedro ? 'bg-emerald-50/50 border-emerald-100' :
-                  isJuan ? 'bg-sky-50/50 border-sky-100' : 'bg-red-50 text-red-600'
+              <div className={`max-w-[90%] p-6 rounded-2xl shadow-sm border transition-all duration-300 ${
+                  isUser ? 'bg-white border-slate-200 text-slate-700 ml-12' :
+                  isPedro ? 'bg-emerald-50/50 border-emerald-100 mr-12' :
+                  isJuan ? 'bg-sky-50/50 border-sky-100 mr-12' : 'bg-red-50 text-red-600 border-red-200'
                 }`}>
                 {!isUser && msg.role !== 'system' && (
                   <div className="mb-4 flex items-center gap-2">
                     <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-md shadow-sm border ${
                         isPedro ? 'bg-emerald-500 text-white border-emerald-400' : 'bg-sky-500 text-white border-sky-400'
                     }`}>
-                      {isPedro ? '🤖 ING. PEDRO (TECNOLOGÍA)' : '💼 ESTRATEGA JUAN (PM)'}
+                      {isPedro ? '🤖 ING. PEDRO' : '💼 ESTRATEGA JUAN'}
                     </span>
                   </div>
                 )}
@@ -170,15 +181,21 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             disabled={isSending || sessionData.current_state === 'FINISHED'}
-            placeholder={isSending ? "Agentes procesando..." : "Escribe tu consulta aquí..."}
-            className="flex-1 p-3.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-cyan-600 outline-none disabled:bg-slate-50"
+            placeholder={isSending ? "Nuestra IA está analizando..." : "Describe tu empresa o consulta..."}
+            className="flex-1 p-3.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-cyan-600 outline-none disabled:bg-slate-50 transition-all shadow-inner"
           />
           <button
             type="submit"
             disabled={!inputValue.trim() || isSending || sessionData.current_state === 'FINISHED'}
-            className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-8 py-3 rounded-xl transition-all shadow-lg active:scale-95 disabled:opacity-50"
+            className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-8 py-3 rounded-xl transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isSending ? "..." : "Enviar"}
+            {isSending ? (
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 bg-white rounded-full animate-bounce"></span>
+                <span className="w-2 h-2 bg-white rounded-full animate-bounce [animation-delay:0.2s]"></span>
+                <span className="w-2 h-2 bg-white rounded-full animate-bounce [animation-delay:0.4s]"></span>
+              </div>
+            ) : "Enviar"}
           </button>
         </form>
       </div>

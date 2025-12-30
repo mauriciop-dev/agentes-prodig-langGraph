@@ -10,43 +10,44 @@ const getAI = () => {
 };
 
 const PROTOCOL_INSTRUCTION = `
-IMPORTANT: You MUST always respond in the following JSON format. Do not include any text outside the JSON.
+REGLA CRÍTICA DE SALIDA: Debes responder EXCLUSIVAMENTE en formato JSON.
+Formato:
 {
-  "message": "[Your persuasive and professional message using markdown for formatting]",
-  "componentName": "[ComponentName or leave empty if only message]",
-  "data": { [Data required for the component] }
+  "message": "[Texto persuasivo en Markdown]",
+  "componentName": "[BusinessForm | ImpactChart | ProposalCard | StepProcess | null]",
+  "data": { [Objeto con los datos específicos] }
 }
-Available Components:
-- BusinessForm: fields (array), title (string). (Include a field for 'IA Problem').
-- ImpactChart: title, labels (array), values (array), unit.
-- ProposalCard: title, roi, cost, features (array).
-- StepProcess: steps (array), currentStep (number).
+
+Reglas por Componente:
+- BusinessForm: "title" (string), "fields" (array de STRINGS). IMPORTANTE: Los elementos de "fields" deben ser nombres cortos de campos (ej: "nombre_empresa"). No olvides incluir "problema_a_resolver_con_ia".
+- ImpactChart: "title" (string), "labels" (array strings), "values" (array números), "unit" (string).
+- ProposalCard: "title" (string), "roi" (string), "cost" (string), "features" (array strings).
+- StepProcess: "steps" (array strings), "currentStep" (número).
 `;
 
 const PEDRO_SYSTEM_PROMPT = `
-Eres Pedro, un Ingeniero de IA Senior y Analista de Datos.
-Tu tono es: Analítico, Técnico y Objetivo.
-Tu tarea es diagnosticar y proponer soluciones técnicas de automatización.
+Eres Pedro, Ingeniero IA Senior. Eres analítico y técnico.
+Tu objetivo: Diagnosticar la viabilidad técnica y proponer automatizaciones.
 ${PROTOCOL_INSTRUCTION}
 `;
 
 const JUAN_SYSTEM_PROMPT = `
-Eres Juan, Project Manager y Estratega de Negocios.
-Tu tono es: Ejecutivo, Estratégico y Empático.
-Tu tarea es presentar la solución final y el roadmap.
+Eres Juan, Estratega de Negocios y PM. Eres ejecutivo y enfocado en ROI.
+Tu objetivo: Transformar hallazgos técnicos en planes de negocio y roadmaps.
 ${PROTOCOL_INSTRUCTION}
 `;
 
-// Utility to clean LLM response and extract JSON
 function cleanAndParseJSON(text: string): A2UIResponse {
   try {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
+      const parsed = JSON.parse(jsonMatch[0]);
+      // Validación mínima de estructura
+      if (parsed.message) return parsed;
     }
     return { message: text };
   } catch (e) {
-    console.error("Failed to parse AI response as JSON", text);
+    console.warn("Error parseando respuesta IA:", text);
     return { message: text };
   }
 }
@@ -54,9 +55,14 @@ function cleanAndParseJSON(text: string): A2UIResponse {
 export async function createSession(userId: string): Promise<ActionResponse<SessionData>> {
   try {
     const supabase = createServerSupabaseAdmin();
+    
+    // Verificar si userId es un UUID válido para evitar error 422
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const finalUserId = uuidRegex.test(userId) ? userId : '00000000-0000-4000-8000-000000000000';
+
     const { data: newSession, error: dbError } = await (supabase.from('sessions') as any)
       .insert({
-        user_id: userId,
+        user_id: finalUserId,
         chat_history: [],
         current_state: 'WAITING_FOR_INFO',
         research_counter: 0,
@@ -65,7 +71,10 @@ export async function createSession(userId: string): Promise<ActionResponse<Sess
       .select()
       .single();
 
-    if (dbError) return { success: false, error: dbError.message };
+    if (dbError) {
+      console.error("DB Error:", dbError);
+      return { success: false, error: dbError.message };
+    }
     return { success: true, data: newSession as SessionData };
   } catch (error: any) {
     return { success: false, error: error.message };
@@ -78,7 +87,7 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
     const ai = getAI();
 
     const { data: rawSession, error } = await supabase.from('sessions').select('*').eq('id', sessionId).single();
-    if (error || !rawSession) return { success: false, error: 'Session not found.' };
+    if (error || !rawSession) return { success: false, error: 'Sesión no encontrada.' };
 
     const dbSession = rawSession as any;
     const session: SessionData = {
@@ -92,61 +101,58 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
       research_counter: dbSession.research_counter
     };
 
-    const updateState = async (updates: Partial<SessionData>) => {
-      const { id, ...cleanUpdates } = updates as any;
-      await (supabase.from('sessions') as any).update(cleanUpdates).eq('id', sessionId);
-    };
-
-    const appendMessage = async (msg: ChatMessage, currentHistory: ChatMessage[]) => {
-      const newHistory = [...currentHistory, msg];
-      await updateState({ chat_history: newHistory as any });
-      return newHistory;
+    const updateDB = async (updates: any) => {
+      await (supabase.from('sessions') as any).update(updates).eq('id', sessionId);
     };
 
     let currentHistory = session.chat_history || [];
     let researchResults = session.research_results || [];
 
-    // 1. Append User Message
-    currentHistory = await appendMessage({ role: 'user', content: userMessage, timestamp: Date.now() }, currentHistory);
+    // 1. Agregar mensaje de usuario
+    currentHistory = [...currentHistory, { role: 'user', content: userMessage, timestamp: Date.now() }];
+    await updateDB({ chat_history: currentHistory });
 
-    // Initial interaction: If empty history or first contact, Pedro asks for info via BusinessForm
+    // Lógica de agentes según el estado
     if (session.current_state === 'WAITING_FOR_INFO' && currentHistory.length === 1) {
       const pedroResponse = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         config: { systemInstruction: PEDRO_SYSTEM_PROMPT },
-        contents: `Preséntate brevemente y pide los datos de la empresa usando el BusinessForm. Asegúrate de incluir la pregunta sobre qué problema creen que la IA puede solucionar.`,
+        contents: `Preséntate brevemente y solicita los datos de la empresa. Usa el BusinessForm para preguntar: nombre, sector, tamaño y el problema específico que quieren resolver con IA.`,
       });
       const pedroData = cleanAndParseJSON(pedroResponse.text || '');
-      currentHistory = await appendMessage({ role: 'pedro', content: JSON.stringify(pedroData), timestamp: Date.now() }, currentHistory);
-      return { success: true, data: { ...session, chat_history: currentHistory } };
+      currentHistory.push({ role: 'pedro', content: JSON.stringify(pedroData), timestamp: Date.now() });
+      await updateDB({ chat_history: currentHistory });
+    } 
+    else {
+      // Flujo de Análisis
+      if (session.current_state === 'WAITING_FOR_INFO') {
+        await updateDB({ company_info: userMessage, current_state: 'START_RESEARCH' });
+      }
+
+      const pedroAnalysis = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        config: { systemInstruction: PEDRO_SYSTEM_PROMPT },
+        contents: `Analiza esta información: ${userMessage}. Genera un ImpactChart mostrando la mejora proyectada en eficiencia.`,
+      });
+      const pData = cleanAndParseJSON(pedroAnalysis.text || '');
+      researchResults.push(pData.message);
+      currentHistory.push({ role: 'pedro', content: JSON.stringify(pData), timestamp: Date.now() });
+      
+      const juanReport = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        config: { systemInstruction: JUAN_SYSTEM_PROMPT },
+        contents: `Hallazgos técnicos: ${JSON.stringify(researchResults)}. Genera el plan estratégico final. Usa StepProcess para el roadmap y ProposalCard para la oferta final.`,
+      });
+      const jData = cleanAndParseJSON(juanReport.text || '');
+      currentHistory.push({ role: 'juan', content: JSON.stringify(jData), timestamp: Date.now() });
+
+      await updateDB({ 
+        chat_history: currentHistory, 
+        research_results: researchResults,
+        current_state: 'FINISHED',
+        report_final: jData.message 
+      });
     }
-
-    // Process Form Submission or general input
-    if (session.current_state === 'WAITING_FOR_INFO') {
-      await updateState({ company_info: userMessage, current_state: 'START_RESEARCH' });
-    }
-
-    // Step 2: Agent Logic (Pedro Analysis)
-    const pedroAnalysis = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      config: { systemInstruction: PEDRO_SYSTEM_PROMPT },
-      contents: `Analiza: ${userMessage}. Genera un ImpactChart mostrando la mejora potencial en eficiencia o ahorro.`,
-    });
-    const pedroData = cleanAndParseJSON(pedroAnalysis.text || '');
-    researchResults.push(pedroData.message);
-    currentHistory = await appendMessage({ role: 'pedro', content: JSON.stringify(pedroData), timestamp: Date.now() }, currentHistory);
-
-    // Step 3: Juan Strategic Wrap-up
-    await updateState({ current_state: 'START_REPORT' });
-    const juanResponse = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      config: { systemInstruction: JUAN_SYSTEM_PROMPT },
-      contents: `Hallazgos: ${JSON.stringify(researchResults)}. Presenta el Roadmap con StepProcess y la solución final con ProposalCard.`,
-    });
-    const juanData = cleanAndParseJSON(juanResponse.text || '');
-    currentHistory = await appendMessage({ role: 'juan', content: JSON.stringify(juanData), timestamp: Date.now() }, currentHistory);
-
-    await updateState({ current_state: 'FINISHED', report_final: juanData.message });
 
     const { data: finalSession } = await supabase.from('sessions').select('*').eq('id', sessionId).single();
     return { success: true, data: finalSession as unknown as SessionData };
