@@ -10,6 +10,14 @@ import { BusinessForm } from './A2UI/BusinessForm';
 import { ImpactChart } from './A2UI/ImpactChart';
 import { ProposalCard } from './A2UI/ProposalCard';
 import { StepProcess } from './A2UI/StepProcess';
+import { ComparativeTable } from './A2UI/ComparativeTable';
+import { PriorityMatrix } from './A2UI/PriorityMatrix';
+import { InteractiveROICalculator } from './A2UI/InteractiveROICalculator';
+import { TechStackGrid } from './A2UI/TechStackGrid';
+import { SWOTAnalysis } from './A2UI/SWOTAnalysis';
+import { GanttMiniTimeline } from './A2UI/GanttMiniTimeline';
+import { TestimonialCard } from './A2UI/TestimonialCard';
+import { RiskAssessment } from './A2UI/RiskAssessment';
 
 interface ChatUIProps {
   sessionId: string;
@@ -97,7 +105,7 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
         a2ui = JSON.parse(content);
       }
     } catch (e) {
-      // No es JSON
+      // Not JSON
     }
 
     const messageText = a2ui?.message || content;
@@ -107,22 +115,19 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
       <div className="w-full">
         <div className="markdown-body" dangerouslySetInnerHTML={{ __html: html as string }} />
         {a2ui?.componentName === 'BusinessForm' && a2ui.data && (
-          <BusinessForm 
-            title={a2ui.data.title} 
-            fields={a2ui.data.fields} 
-            onSubmit={handleFormSubmit} 
-            disabled={isSending}
-          />
+          <BusinessForm {...a2ui.data} onSubmit={handleFormSubmit} disabled={isSending} />
         )}
-        {a2ui?.componentName === 'ImpactChart' && a2ui.data && (
-          <ImpactChart {...a2ui.data} />
-        )}
-        {a2ui?.componentName === 'ProposalCard' && a2ui.data && (
-          <ProposalCard {...a2ui.data} />
-        )}
-        {a2ui?.componentName === 'StepProcess' && a2ui.data && (
-          <StepProcess {...a2ui.data} />
-        )}
+        {a2ui?.componentName === 'ImpactChart' && a2ui.data && <ImpactChart {...a2ui.data} />}
+        {a2ui?.componentName === 'ProposalCard' && a2ui.data && <ProposalCard {...a2ui.data} />}
+        {a2ui?.componentName === 'StepProcess' && a2ui.data && <StepProcess {...a2ui.data} />}
+        {a2ui?.componentName === 'ComparativeTable' && a2ui.data && <ComparativeTable {...a2ui.data} />}
+        {a2ui?.componentName === 'PriorityMatrix' && a2ui.data && <PriorityMatrix {...a2ui.data} />}
+        {a2ui?.componentName === 'InteractiveROICalculator' && a2ui.data && <InteractiveROICalculator {...a2ui.data} />}
+        {a2ui?.componentName === 'TechStackGrid' && a2ui.data && <TechStackGrid {...a2ui.data} />}
+        {a2ui?.componentName === 'SWOTAnalysis' && a2ui.data && <SWOTAnalysis {...a2ui.data} />}
+        {a2ui?.componentName === 'GanttMiniTimeline' && a2ui.data && <GanttMiniTimeline {...a2ui.data} />}
+        {a2ui?.componentName === 'TestimonialCard' && a2ui.data && <TestimonialCard {...a2ui.data} />}
+        {a2ui?.componentName === 'RiskAssessment' && a2ui.data && <RiskAssessment {...a2ui.data} />}
       </div>
     );
   };

@@ -3,7 +3,7 @@ export type AgentRole = 'user' | 'pedro' | 'juan' | 'system';
 
 export interface ChatMessage {
   role: AgentRole;
-  content: string; // This will now contain JSON for A2UI
+  content: string; // Contiene JSON para A2UI
   timestamp: number;
 }
 
@@ -33,35 +33,69 @@ export interface ActionResponse<T> {
 }
 
 // A2UI Protocol Types
+export type A2UIComponentName = 
+  | 'BusinessForm' 
+  | 'ImpactChart' 
+  | 'ProposalCard' 
+  | 'StepProcess'
+  | 'ComparativeTable'
+  | 'PriorityMatrix'
+  | 'InteractiveROICalculator'
+  | 'TechStackGrid'
+  | 'SWOTAnalysis'
+  | 'GanttMiniTimeline'
+  | 'TestimonialCard'
+  | 'RiskAssessment';
+
 export interface A2UIResponse {
   message: string;
-  componentName?: 'BusinessForm' | 'ImpactChart' | 'ProposalCard' | 'StepProcess';
+  componentName?: A2UIComponentName;
   data?: any;
 }
 
-// Component Data Interfaces
-export interface BusinessFormData {
+// Data Interfaces for new components
+export interface ComparativeTableData {
   title: string;
-  fields: string[];
+  rows: { label: string; before: string; after: string }[];
 }
 
-export interface ImpactChartData {
+export interface PriorityMatrixData {
   title: string;
-  labels: string[];
-  values: number[];
-  unit: string;
+  items: { name: string; impact: number; difficulty: number }[]; // 0 to 100
 }
 
-export interface ProposalCardData {
+export interface ROICalculatorData {
   title: string;
-  roi: string;
-  cost: string;
-  features: string[];
+  hourlyRate: number;
+  hoursLost: number;
+  efficiencyGain: number; // percentage
 }
 
-export interface StepProcessData {
-  steps: string[];
-  currentStep: number;
+export interface TechStackData {
+  title: string;
+  stack: { name: string; category: string }[];
+}
+
+export interface SWOTData {
+  strengths: string[];
+  weaknesses: string[];
+  opportunities: string[];
+  threats: string[];
+}
+
+export interface GanttData {
+  title: string;
+  phases: { name: string; start: number; duration: number }[];
+}
+
+export interface TestimonialData {
+  client: string;
+  quote: string;
+  result: string;
+}
+
+export interface RiskData {
+  risks: { name: string; level: 'low' | 'medium' | 'high'; description: string }[];
 }
 
 export type Json =

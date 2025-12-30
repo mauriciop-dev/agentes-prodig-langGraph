@@ -14,26 +14,38 @@ REGLA CRÍTICA DE SALIDA: Debes responder EXCLUSIVAMENTE en formato JSON.
 Formato:
 {
   "message": "[Texto persuasivo en Markdown]",
-  "componentName": "[BusinessForm | ImpactChart | ProposalCard | StepProcess | null]",
+  "componentName": "[NombreDelComponente | null]",
   "data": { [Objeto con los datos específicos] }
 }
 
-Reglas por Componente:
-- BusinessForm: "title", "fields" (array strings). Incluir "problema_ia".
-- ImpactChart: "title", "labels", "values" (números), "unit".
-- ProposalCard: "title", "roi", "cost", "features".
-- StepProcess: "steps", "currentStep".
+Componentes Disponibles:
+1. BusinessForm: data: { "title": string, "fields": string[] }
+2. ImpactChart: data: { "title": string, "labels": string[], "values": number[], "unit": string }
+3. ProposalCard: data: { "title": string, "roi": string, "cost": string, "features": string[] }
+4. StepProcess: data: { "steps": string[], "currentStep": number }
+5. ComparativeTable: data: { "title": string, "rows": [{ "label": string, "before": string, "after": string }] }
+6. PriorityMatrix: data: { "title": string, "items": [{ "name": string, "impact": number, "difficulty": number }] } (valores 0-100)
+7. InteractiveROICalculator: data: { "title": string, "hourlyRate": number, "hoursLost": number, "efficiencyGain": number }
+8. TechStackGrid: data: { "title": string, "stack": [{ "name": string, "category": string }] }
+9. SWOTAnalysis: data: { "strengths": string[], "weaknesses": string[], "opportunities": string[], "threats": string[] }
+10. GanttMiniTimeline: data: { "title": string, "phases": [{ "name": string, "start": number, "duration": number }] } (semanas)
+11. TestimonialCard: data: { "client": string, "quote": string, "result": string }
+12. RiskAssessment: data: { "risks": [{ "name": string, "level": "low"|"medium"|"high", "description": string }] }
+
+ELIGE EL COMPONENTE QUE MEJOR SE ADAPTE AL MOMENTO DE LA CONVERSACIÓN.
 `;
 
 const PEDRO_SYSTEM_PROMPT = `
 Eres Pedro, Consultor de IA Senior. Tu color es el ESMERALDA/VERDE. Eres técnico, preciso y analítico.
 Tu objetivo es identificar oportunidades de automatización y eficiencia técnica.
+Usa ImpactChart, RiskAssessment o TechStackGrid para sustentar tus hallazgos.
 ${PROTOCOL_INSTRUCTION}
 `;
 
 const JUAN_SYSTEM_PROMPT = `
 Eres Juan, Ingeniero y Estratega de Negocios. Tu color es el CIELO/AZUL. Eres ejecutivo, empático y enfocado en el ROI.
-Tu objetivo es transformar la técnica en valor de negocio y guiar la implementación.
+Tu objetivo es transformar la técnica en valor de negocio.
+Usa ComparativeTable, InteractiveROICalculator, SWOTAnalysis, GanttMiniTimeline o ProposalCard.
 ${PROTOCOL_INSTRUCTION}
 `;
 
@@ -101,19 +113,15 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
     let currentHistory = session.chat_history || [];
     let researchResults = session.research_results || [];
 
-    // 1. Agregar mensaje de usuario
     currentHistory = [...currentHistory, { role: 'user', content: userMessage, timestamp: Date.now() }];
     await updateDB({ chat_history: currentHistory });
 
-    // ESTADO 1: BIENVENIDA DUAL
     if (currentHistory.length === 1) {
-      // Juan se presenta (Mensaje 1)
       const juanIntro = {
         message: "¡Hola! Soy **Juan**, Ingeniero y Estratega de Negocios. Mi misión es asegurar que cada tecnología se convierta en un motor de crecimiento real para tu empresa.",
         componentName: null,
         data: {}
       };
-      // Pedro se presenta (Mensaje 2)
       const pedroIntro = {
         message: "Y yo soy **Pedro**, Consultor de IA. Juntos vamos a ayudarte a decidir en qué parte de tu empresa o proyecto puedes implementar IA y automatizaciones.\n\nPara empezar, solo tenemos unas preguntas iniciales para conocerte mejor. ¿Estás listo? Escribe **'si'** o **'listo'**.",
         componentName: null,
@@ -124,7 +132,6 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
       currentHistory.push({ role: 'pedro', content: JSON.stringify(pedroIntro), timestamp: Date.now() });
       await updateDB({ chat_history: currentHistory });
     } 
-    // ESTADO 2: ENVÍO DE FORMULARIO TRAS CONFIRMACIÓN
     else if (session.current_state === 'WAITING_FOR_INFO' && 
              (userMessage.toLowerCase().includes('si') || userMessage.toLowerCase().includes('listo'))) {
       
@@ -140,31 +147,29 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
       currentHistory.push({ role: 'pedro', content: JSON.stringify(formResponse), timestamp: Date.now() });
       await updateDB({ chat_history: currentHistory, current_state: 'START_RESEARCH' });
     }
-    // ESTADO 3: PROCESAMIENTO Y CIERRE
     else if (session.current_state === 'START_RESEARCH' || session.current_state === 'FINISHED') {
       
-      // Pedro analiza técnicamente
       const pedroAnalysis = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         config: { systemInstruction: PEDRO_SYSTEM_PROMPT },
-        contents: `Analiza esta información y genera una gráfica de impacto: ${userMessage}.`,
+        contents: `Información del usuario: ${userMessage}. Contexto previo: ${JSON.stringify(researchResults)}. 
+        Realiza un análisis profundo y elige el componente más adecuado (ImpactChart, RiskAssessment, TechStackGrid o PriorityMatrix).`,
       });
       const pData = cleanAndParseJSON(pedroAnalysis.text || '');
       researchResults.push(pData.message);
       currentHistory.push({ role: 'pedro', content: JSON.stringify(pData), timestamp: Date.now() });
       
-      // Juan cierra con estrategia y contacto
       const juanReport = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         config: { systemInstruction: JUAN_SYSTEM_PROMPT },
-        contents: `Hallazgos de Pedro: ${JSON.stringify(researchResults)}. Presenta el roadmap (StepProcess) y la propuesta final (ProposalCard). 
-        IMPORTANTE: Al final de tu mensaje, invita al usuario a contactar a ProDig al 3144897092 si tiene dudas adicionales.`,
+        contents: `Hallazgos de Pedro: ${JSON.stringify(researchResults)}. 
+        Tarea: Crea la estrategia de negocio. Usa ComparativeTable, InteractiveROICalculator, SWOTAnalysis, GanttMiniTimeline o ProposalCard. 
+        Al final, invita al contacto a ProDig al 3144897092.`,
       });
       const jData = cleanAndParseJSON(juanReport.text || '');
       
-      // Asegurar que el mensaje de Juan tenga la invitación de contacto si la IA lo omite
       if (!jData.message.includes('3144897092')) {
-        jData.message += "\n\n---\n¿Tienes alguna duda adicional? Estaré encantado de resolverla. También puedes contactarnos directamente en **ProDig** al **3144897092** para una sesión personalizada.";
+        jData.message += "\n\n---\n¿Dudas? Contacta a **ProDig** al **3144897092**.";
       }
 
       currentHistory.push({ role: 'juan', content: JSON.stringify(jData), timestamp: Date.now() });
