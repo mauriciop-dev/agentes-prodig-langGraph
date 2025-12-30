@@ -19,21 +19,21 @@ Formato:
 }
 
 Reglas por Componente:
-- BusinessForm: "title" (string), "fields" (array de STRINGS). IMPORTANTE: Los elementos de "fields" deben ser nombres cortos (ej: "nombre_empresa"). No olvides incluir "problema_a_resolver_con_ia".
-- ImpactChart: "title" (string), "labels" (array strings), "values" (array NÚMEROS), "unit" (string, ej: "%", "hrs", "$"). IMPORTANTE: El primer valor debe representar el estado actual y los siguientes la mejora con IA.
-- ProposalCard: "title" (string), "roi" (string), "cost" (string), "features" (array strings).
-- StepProcess: "steps" (array strings), "currentStep" (número).
+- BusinessForm: "title", "fields" (array strings). Incluir "problema_ia".
+- ImpactChart: "title", "labels", "values" (números), "unit".
+- ProposalCard: "title", "roi", "cost", "features".
+- StepProcess: "steps", "currentStep".
 `;
 
 const PEDRO_SYSTEM_PROMPT = `
-Eres Pedro, Ingeniero IA Senior. Eres analítico y técnico.
-Tu objetivo: Diagnosticar la viabilidad técnica y proponer automatizaciones basadas en datos.
+Eres Pedro, Consultor de IA Senior. Tu color es el ESMERALDA/VERDE. Eres técnico, preciso y analítico.
+Tu objetivo es identificar oportunidades de automatización y eficiencia técnica.
 ${PROTOCOL_INSTRUCTION}
 `;
 
 const JUAN_SYSTEM_PROMPT = `
-Eres Juan, Estratega de Negocios y PM. Eres ejecutivo y enfocado en ROI.
-Tu objetivo: Transformar hallazgos técnicos en planes de negocio y roadmaps claros.
+Eres Juan, Ingeniero y Estratega de Negocios. Tu color es el CIELO/AZUL. Eres ejecutivo, empático y enfocado en el ROI.
+Tu objetivo es transformar la técnica en valor de negocio y guiar la implementación.
 ${PROTOCOL_INSTRUCTION}
 `;
 
@@ -46,7 +46,6 @@ function cleanAndParseJSON(text: string): A2UIResponse {
     }
     return { message: text };
   } catch (e) {
-    console.warn("Error parseando respuesta IA:", text);
     return { message: text };
   }
 }
@@ -102,42 +101,72 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
     let currentHistory = session.chat_history || [];
     let researchResults = session.research_results || [];
 
+    // 1. Agregar mensaje de usuario
     currentHistory = [...currentHistory, { role: 'user', content: userMessage, timestamp: Date.now() }];
     await updateDB({ chat_history: currentHistory });
 
-    if (session.current_state === 'WAITING_FOR_INFO' && currentHistory.length === 1) {
-      const pedroResponse = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        config: { systemInstruction: PEDRO_SYSTEM_PROMPT },
-        contents: `Saluda profesionalmente y solicita datos de la empresa. Usa BusinessForm con: nombre_empresa, sector, empleados y problema_ia.`,
-      });
-      const pedroData = cleanAndParseJSON(pedroResponse.text || '');
-      currentHistory.push({ role: 'pedro', content: JSON.stringify(pedroData), timestamp: Date.now() });
+    // ESTADO 1: BIENVENIDA DUAL
+    if (currentHistory.length === 1) {
+      // Juan se presenta (Mensaje 1)
+      const juanIntro = {
+        message: "¡Hola! Soy **Juan**, Ingeniero y Estratega de Negocios. Mi misión es asegurar que cada tecnología se convierta en un motor de crecimiento real para tu empresa.",
+        componentName: null,
+        data: {}
+      };
+      // Pedro se presenta (Mensaje 2)
+      const pedroIntro = {
+        message: "Y yo soy **Pedro**, Consultor de IA. Juntos vamos a ayudarte a decidir en qué parte de tu empresa o proyecto puedes implementar IA y automatizaciones.\n\nPara empezar, solo tenemos unas preguntas iniciales para conocerte mejor. ¿Estás listo? Escribe **'si'** o **'listo'**.",
+        componentName: null,
+        data: {}
+      };
+
+      currentHistory.push({ role: 'juan', content: JSON.stringify(juanIntro), timestamp: Date.now() });
+      currentHistory.push({ role: 'pedro', content: JSON.stringify(pedroIntro), timestamp: Date.now() });
       await updateDB({ chat_history: currentHistory });
     } 
-    else {
-      if (session.current_state === 'WAITING_FOR_INFO') {
-        await updateDB({ company_info: userMessage, current_state: 'START_RESEARCH' });
-      }
-
+    // ESTADO 2: ENVÍO DE FORMULARIO TRAS CONFIRMACIÓN
+    else if (session.current_state === 'WAITING_FOR_INFO' && 
+             (userMessage.toLowerCase().includes('si') || userMessage.toLowerCase().includes('listo'))) {
+      
+      const formResponse = {
+        message: "Excelente. Por favor, completa este breve diagnóstico para que podamos analizar tu caso con precisión técnica.",
+        componentName: 'BusinessForm',
+        data: {
+          title: "Diagnóstico de Potencial IA",
+          fields: ["nombre_empresa", "sector_industria", "numero_empleados", "problema_ia_a_resolver"]
+        }
+      };
+      
+      currentHistory.push({ role: 'pedro', content: JSON.stringify(formResponse), timestamp: Date.now() });
+      await updateDB({ chat_history: currentHistory, current_state: 'START_RESEARCH' });
+    }
+    // ESTADO 3: PROCESAMIENTO Y CIERRE
+    else if (session.current_state === 'START_RESEARCH' || session.current_state === 'FINISHED') {
+      
+      // Pedro analiza técnicamente
       const pedroAnalysis = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         config: { systemInstruction: PEDRO_SYSTEM_PROMPT },
-        contents: `Información recibida: ${userMessage}. 
-        Tarea 1: Analiza la viabilidad técnica. 
-        Tarea 2: Genera un ImpactChart con al menos 4 indicadores (ej: Ahorro combustible, Eficiencia, Tiempos muertos, etc). Asegúrate de que los "values" sean números y no strings.`,
+        contents: `Analiza esta información y genera una gráfica de impacto: ${userMessage}.`,
       });
       const pData = cleanAndParseJSON(pedroAnalysis.text || '');
       researchResults.push(pData.message);
       currentHistory.push({ role: 'pedro', content: JSON.stringify(pData), timestamp: Date.now() });
       
+      // Juan cierra con estrategia y contacto
       const juanReport = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         config: { systemInstruction: JUAN_SYSTEM_PROMPT },
-        contents: `Análisis de Pedro: ${JSON.stringify(researchResults)}. 
-        Tarea: Presenta el plan de implementación. Usa StepProcess para las fases y ProposalCard para resumir el ROI y entregables.`,
+        contents: `Hallazgos de Pedro: ${JSON.stringify(researchResults)}. Presenta el roadmap (StepProcess) y la propuesta final (ProposalCard). 
+        IMPORTANTE: Al final de tu mensaje, invita al usuario a contactar a ProDig al 3144897092 si tiene dudas adicionales.`,
       });
       const jData = cleanAndParseJSON(juanReport.text || '');
+      
+      // Asegurar que el mensaje de Juan tenga la invitación de contacto si la IA lo omite
+      if (!jData.message.includes('3144897092')) {
+        jData.message += "\n\n---\n¿Tienes alguna duda adicional? Estaré encantado de resolverla. También puedes contactarnos directamente en **ProDig** al **3144897092** para una sesión personalizada.";
+      }
+
       currentHistory.push({ role: 'juan', content: JSON.stringify(jData), timestamp: Date.now() });
 
       await updateDB({ 
