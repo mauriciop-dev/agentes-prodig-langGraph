@@ -19,21 +19,21 @@ Formato:
 }
 
 Reglas por Componente:
-- BusinessForm: "title" (string), "fields" (array de STRINGS). IMPORTANTE: Los elementos de "fields" deben ser nombres cortos de campos (ej: "nombre_empresa"). No olvides incluir "problema_a_resolver_con_ia".
-- ImpactChart: "title" (string), "labels" (array strings), "values" (array números), "unit" (string).
+- BusinessForm: "title" (string), "fields" (array de STRINGS). IMPORTANTE: Los elementos de "fields" deben ser nombres cortos (ej: "nombre_empresa"). No olvides incluir "problema_a_resolver_con_ia".
+- ImpactChart: "title" (string), "labels" (array strings), "values" (array NÚMEROS), "unit" (string, ej: "%", "hrs", "$"). IMPORTANTE: El primer valor debe representar el estado actual y los siguientes la mejora con IA.
 - ProposalCard: "title" (string), "roi" (string), "cost" (string), "features" (array strings).
 - StepProcess: "steps" (array strings), "currentStep" (número).
 `;
 
 const PEDRO_SYSTEM_PROMPT = `
 Eres Pedro, Ingeniero IA Senior. Eres analítico y técnico.
-Tu objetivo: Diagnosticar la viabilidad técnica y proponer automatizaciones.
+Tu objetivo: Diagnosticar la viabilidad técnica y proponer automatizaciones basadas en datos.
 ${PROTOCOL_INSTRUCTION}
 `;
 
 const JUAN_SYSTEM_PROMPT = `
 Eres Juan, Estratega de Negocios y PM. Eres ejecutivo y enfocado en ROI.
-Tu objetivo: Transformar hallazgos técnicos en planes de negocio y roadmaps.
+Tu objetivo: Transformar hallazgos técnicos en planes de negocio y roadmaps claros.
 ${PROTOCOL_INSTRUCTION}
 `;
 
@@ -42,7 +42,6 @@ function cleanAndParseJSON(text: string): A2UIResponse {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
-      // Validación mínima de estructura
       if (parsed.message) return parsed;
     }
     return { message: text };
@@ -55,8 +54,6 @@ function cleanAndParseJSON(text: string): A2UIResponse {
 export async function createSession(userId: string): Promise<ActionResponse<SessionData>> {
   try {
     const supabase = createServerSupabaseAdmin();
-    
-    // Verificar si userId es un UUID válido para evitar error 422
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     const finalUserId = uuidRegex.test(userId) ? userId : '00000000-0000-4000-8000-000000000000';
 
@@ -71,10 +68,7 @@ export async function createSession(userId: string): Promise<ActionResponse<Sess
       .select()
       .single();
 
-    if (dbError) {
-      console.error("DB Error:", dbError);
-      return { success: false, error: dbError.message };
-    }
+    if (dbError) return { success: false, error: dbError.message };
     return { success: true, data: newSession as SessionData };
   } catch (error: any) {
     return { success: false, error: error.message };
@@ -108,23 +102,20 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
     let currentHistory = session.chat_history || [];
     let researchResults = session.research_results || [];
 
-    // 1. Agregar mensaje de usuario
     currentHistory = [...currentHistory, { role: 'user', content: userMessage, timestamp: Date.now() }];
     await updateDB({ chat_history: currentHistory });
 
-    // Lógica de agentes según el estado
     if (session.current_state === 'WAITING_FOR_INFO' && currentHistory.length === 1) {
       const pedroResponse = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         config: { systemInstruction: PEDRO_SYSTEM_PROMPT },
-        contents: `Preséntate brevemente y solicita los datos de la empresa. Usa el BusinessForm para preguntar: nombre, sector, tamaño y el problema específico que quieren resolver con IA.`,
+        contents: `Saluda profesionalmente y solicita datos de la empresa. Usa BusinessForm con: nombre_empresa, sector, empleados y problema_ia.`,
       });
       const pedroData = cleanAndParseJSON(pedroResponse.text || '');
       currentHistory.push({ role: 'pedro', content: JSON.stringify(pedroData), timestamp: Date.now() });
       await updateDB({ chat_history: currentHistory });
     } 
     else {
-      // Flujo de Análisis
       if (session.current_state === 'WAITING_FOR_INFO') {
         await updateDB({ company_info: userMessage, current_state: 'START_RESEARCH' });
       }
@@ -132,7 +123,9 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
       const pedroAnalysis = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         config: { systemInstruction: PEDRO_SYSTEM_PROMPT },
-        contents: `Analiza esta información: ${userMessage}. Genera un ImpactChart mostrando la mejora proyectada en eficiencia.`,
+        contents: `Información recibida: ${userMessage}. 
+        Tarea 1: Analiza la viabilidad técnica. 
+        Tarea 2: Genera un ImpactChart con al menos 4 indicadores (ej: Ahorro combustible, Eficiencia, Tiempos muertos, etc). Asegúrate de que los "values" sean números y no strings.`,
       });
       const pData = cleanAndParseJSON(pedroAnalysis.text || '');
       researchResults.push(pData.message);
@@ -141,7 +134,8 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
       const juanReport = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         config: { systemInstruction: JUAN_SYSTEM_PROMPT },
-        contents: `Hallazgos técnicos: ${JSON.stringify(researchResults)}. Genera el plan estratégico final. Usa StepProcess para el roadmap y ProposalCard para la oferta final.`,
+        contents: `Análisis de Pedro: ${JSON.stringify(researchResults)}. 
+        Tarea: Presenta el plan de implementación. Usa StepProcess para las fases y ProposalCard para resumir el ROI y entregables.`,
       });
       const jData = cleanAndParseJSON(juanReport.text || '');
       currentHistory.push({ role: 'juan', content: JSON.stringify(jData), timestamp: Date.now() });
