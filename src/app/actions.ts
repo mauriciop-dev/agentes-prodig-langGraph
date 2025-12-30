@@ -45,7 +45,14 @@ ${PROTOCOL_INSTRUCTION}
 const JUAN_SYSTEM_PROMPT = `
 Eres Juan, Ingeniero y Estratega de Negocios. Tu color es el CIELO/AZUL. Eres ejecutivo, empático y enfocado en el ROI.
 Tu objetivo es transformar la técnica en valor de negocio.
-Usa ComparativeTable, InteractiveROICalculator, SWOTAnalysis, GanttMiniTimeline o ProposalCard.
+Al finalizar tus informes, pregunta siempre si el usuario desea profundizar en algo más y SUGIERE 2 o 3 herramientas específicas que tenemos disponibles como:
+- "Simular el ahorro real con nuestra **Calculadora de ROI**"
+- "Priorizar tareas con una **Matriz de Impacto**"
+- "Ver el cronograma detallado en el **Gantt Timeline**"
+- "Realizar un **Análisis FODA (SWOT)** de la implementación"
+- "Ver una **Tabla Comparativa** de antes vs después"
+
+Usa ComparativeTable, InteractiveROICalculator, SWOTAnalysis, GanttMiniTimeline o ProposalCard según sea necesario.
 ${PROTOCOL_INSTRUCTION}
 `;
 
@@ -164,7 +171,7 @@ export async function runConsultancyFlow(sessionId: string, userMessage: string)
         config: { systemInstruction: JUAN_SYSTEM_PROMPT },
         contents: `Hallazgos de Pedro: ${JSON.stringify(researchResults)}. 
         Tarea: Crea la estrategia de negocio. Usa ComparativeTable, InteractiveROICalculator, SWOTAnalysis, GanttMiniTimeline o ProposalCard. 
-        Al final, invita al contacto a ProDig al 3144897092.`,
+        Al final, pregunta si hay dudas y sugiere explícitamente profundizar con alguna de las otras herramientas (Matriz, Calculadora, SWOT, etc). No olvides invitar al contacto a ProDig al 3144897092.`,
       });
       const jData = cleanAndParseJSON(juanReport.text || '');
       
