@@ -4,8 +4,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase/supabase-client';
 import { SessionData, ChatMessage, A2UIResponse } from '@/lib/types';
-import { runConsultancyFlow } from '@/app/actions';
 import { marked } from 'marked';
+import { GoogleGenAI } from "@google/genai";
 import { BusinessForm } from './A2UI/BusinessForm';
 import { ImpactChart } from './A2UI/ImpactChart';
 import { ProposalCard } from './A2UI/ProposalCard';
@@ -31,6 +31,67 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   const supabase = createBrowserSupabaseClient();
+  const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY! });
+
+  const PROTOCOL_INSTRUCTION = `
+REGLA CRÍTICA DE SALIDA: Debes responder EXCLUSIVAMENTE en formato JSON.
+Formato:
+{
+  "message": "[Texto persuasivo en Markdown]",
+  "componentName": "[NombreDelComponente | null]",
+  "data": { [Objeto con los datos específicos] }
+}
+
+Componentes Disponibles:
+1. BusinessForm: data: { "title": string, "fields": string[] }
+2. ImpactChart: data: { "title": string, "labels": string[], "values": number[], "unit": string }
+3. ProposalCard: data: { "title": string, "roi": string, "cost": string, "features": string[] }
+4. StepProcess: data: { "steps": string[], "currentStep": number }
+5. ComparativeTable: data: { "title": string, "rows": [{ "label": string, "before": string, "after": string }] }
+6. PriorityMatrix: data: { "title": string, "items": [{ "name": string, "impact": number, "difficulty": number }] } (valores 0-100)
+7. InteractiveROICalculator: data: { "title": string, "hourlyRate": number, "hoursLost": number, "efficiencyGain": number }
+8. TechStackGrid: data: { "title": string, "stack": [{ "name": string, "category": string }] }
+9. SWOTAnalysis: data: { "strengths": string[], "weaknesses": string[], "opportunities": string[], "threats": string[] }
+10. GanttMiniTimeline: data: { "title": string, "phases": [{ "name": string, "start": number, "duration": number }] } (semanas)
+11. TestimonialCard: data: { "client": string, "quote": string, "result": string }
+12. RiskAssessment: data: { "risks": [{ "name": string, "level": "low"|"medium"|"high", "description": string }] }
+
+ELIGE EL COMPONENTE QUE MEJOR SE ADAPTE AL MOMENTO DE LA CONVERSACIÓN.
+`;
+
+  const PEDRO_SYSTEM_PROMPT = `
+Eres Pedro, Consultor de IA Senior. Tu color es el ESMERALDA/VERDE. Eres técnico, preciso y analítico.
+Tu objetivo es identificar oportunidades de automatización y eficiencia técnica.
+Usa ImpactChart, RiskAssessment o TechStackGrid para sustentar tus hallazgos.
+${PROTOCOL_INSTRUCTION}
+`;
+
+  const JUAN_SYSTEM_PROMPT = `
+Eres Juan, Ingeniero y Estratega de Negocios. Tu color es el CIELO/AZUL. Eres ejecutivo, empático y enfocado en el ROI.
+Tu objetivo es transformar la técnica en valor de negocio.
+Al finalizar tus informes, pregunta siempre si el usuario desea profundizar en algo más y SUGIERE 2 o 3 herramientas específicas que tenemos disponibles como:
+- "Simular el ahorro real con nuestra **Calculadora de ROI**"
+- "Priorizar tareas con una **Matriz de Impacto**"
+- "Ver el cronograma detallado en el **Gantt Timeline**"
+- "Realizar un **Análisis FODA (SWOT)** de la implementación"
+- "Ver una **Tabla Comparativa** de antes vs después"
+
+Usa ComparativeTable, InteractiveROICalculator, SWOTAnalysis, GanttMiniTimeline o ProposalCard según sea necesario.
+${PROTOCOL_INSTRUCTION}
+`;
+
+  function cleanAndParseJSON(text: string): A2UIResponse {
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.message) return parsed;
+      }
+      return { message: text };
+    } catch (e) {
+      return { message: text };
+    }
+  }
 
   useEffect(() => {
     marked.setOptions({ breaks: true, gfm: true });
@@ -67,19 +128,95 @@ const ChatUI: React.FC<ChatUIProps> = ({ sessionId, initialSession }) => {
     if (!msg.trim() || isSending) return;
     setIsSending(true);
     
-    const userMsg: ChatMessage = { role: 'user', content: msg, timestamp: Date.now() };
-    setSessionData(prev => ({ ...prev, chat_history: [...prev.chat_history, userMsg] }));
+    let currentHistory = [...sessionData.chat_history, { role: 'user', content: msg, timestamp: Date.now() }];
+    let researchResults = [...(sessionData.research_results || [])];
+    let currentState = sessionData.current_state;
+    let reportFinal = sessionData.report_final;
+
+    setSessionData(prev => ({ ...prev, chat_history: currentHistory }));
 
     try {
-      const response = await runConsultancyFlow(sessionId, msg);
-      if (response.success && response.data) {
-        setSessionData(response.data);
-      } else {
-        const errorMsg: ChatMessage = { role: 'system', content: `**Error:** ${response.error || "Ocurrió un problema técnico."}`, timestamp: Date.now() };
-        setSessionData(prev => ({ ...prev, chat_history: [...prev.chat_history, errorMsg] }));
+      // Update DB with user message immediately
+      await supabase.from('sessions').update({ chat_history: currentHistory }).eq('id', sessionId);
+
+      if (currentHistory.filter(m => m.role === 'user').length === 1) {
+        const juanIntro = {
+          message: "¡Hola! Soy **Juan**, Ingeniero y Estratega de Negocios. Mi misión es asegurar que cada tecnología se convierta en un motor de crecimiento real para tu empresa.",
+          componentName: null,
+          data: {}
+        };
+        const pedroIntro = {
+          message: "Y yo soy **Pedro**, Consultor de IA. Juntos vamos a ayudarte a decidir en qué parte de tu empresa o proyecto puedes implementar IA y automatizaciones.\n\nPara empezar, solo tenemos unas preguntas iniciales para conocerte mejor. ¿Estás listo? Escribe **'si'** o **'listo'**.",
+          componentName: null,
+          data: {}
+        };
+
+        currentHistory.push({ role: 'juan', content: JSON.stringify(juanIntro), timestamp: Date.now() });
+        currentHistory.push({ role: 'pedro', content: JSON.stringify(pedroIntro), timestamp: Date.now() });
+        await supabase.from('sessions').update({ chat_history: currentHistory }).eq('id', sessionId);
+      } 
+      else if (currentState === 'WAITING_FOR_INFO' && 
+               (msg.toLowerCase().includes('si') || msg.toLowerCase().includes('listo'))) {
+        
+        const formResponse = {
+          message: "Excelente. Por favor, completa este breve diagnóstico para que podamos analizar tu caso con precisión técnica.",
+          componentName: 'BusinessForm',
+          data: {
+            title: "Diagnóstico de Potencial IA",
+            fields: ["nombre_empresa", "sector_industria", "numero_empleados", "problema_ia_a_resolver"]
+          }
+        };
+        
+        currentHistory.push({ role: 'pedro', content: JSON.stringify(formResponse), timestamp: Date.now() });
+        currentState = 'START_RESEARCH';
+        await supabase.from('sessions').update({ 
+          chat_history: currentHistory, 
+          current_state: currentState 
+        }).eq('id', sessionId);
       }
-    } catch (err) {
+      else if (currentState === 'START_RESEARCH' || currentState === 'FINISHED') {
+        // CALL AI FROM CLIENT
+        const pedroModel = 'gemini-3-flash-preview';
+        
+        const pedroAnalysis = await ai.models.generateContent({
+          model: pedroModel,
+          config: { systemInstruction: PEDRO_SYSTEM_PROMPT },
+          contents: `Información del usuario: ${msg}. Contexto previo: ${JSON.stringify(researchResults)}. 
+          Realiza un análisis profundo y elige el componente más adecuado (ImpactChart, RiskAssessment, TechStackGrid o PriorityMatrix).`,
+        });
+        const pData = cleanAndParseJSON(pedroAnalysis.text || '');
+        researchResults.push(pData.message);
+        currentHistory.push({ role: 'pedro', content: JSON.stringify(pData), timestamp: Date.now() });
+        
+        const juanAnalysis = await ai.models.generateContent({
+          model: pedroModel,
+          config: { systemInstruction: JUAN_SYSTEM_PROMPT },
+          contents: `Hallazgos de Pedro: ${JSON.stringify(researchResults)}. 
+          Tarea: Crea la estrategia de negocio. Usa ComparativeTable, InteractiveROICalculator, SWOTAnalysis, GanttMiniTimeline o ProposalCard. 
+          Al final, pregunta si hay dudas y sugiere explícitamente profundizar con alguna de las otras herramientas (Matriz, Calculadora, SWOT, etc). No olvides invitar al contacto a ProDig al 3144897092.`,
+        });
+        const jData = cleanAndParseJSON(juanAnalysis.text || '');
+        
+        if (!jData.message.includes('3144897092')) {
+          jData.message += "\n\n---\n¿Dudas? Contacta a **ProDig** al **3144897092**.";
+        }
+
+        currentHistory.push({ role: 'juan', content: JSON.stringify(jData), timestamp: Date.now() });
+        currentState = 'FINISHED';
+        reportFinal = jData.message;
+
+        await supabase.from('sessions').update({ 
+          chat_history: currentHistory, 
+          research_results: researchResults,
+          current_state: currentState,
+          report_final: reportFinal
+        }).eq('id', sessionId);
+      }
+
+    } catch (err: any) {
       console.error('Error triggering flow:', err);
+      const errorMsg: ChatMessage = { role: 'system', content: `**Error:** ${err.message || "Ocurrió un problema técnico."}`, timestamp: Date.now() };
+      setSessionData(prev => ({ ...prev, chat_history: [...prev.chat_history, errorMsg] }));
     } finally {
       setIsSending(false);
     }

@@ -24,6 +24,9 @@ create table if not exists public.sessions (
 -- Habilitar seguridad (RLS)
 alter table public.sessions enable row level security;
 
+-- Habilitar Realtime para esta tabla
+alter publication supabase_realtime add table sessions;
+
 -- Permitir lectura pública para que la web se actualice en tiempo real
 create policy "Public Read" on public.sessions for select using (true);
 
@@ -50,10 +53,25 @@ export default function Home() {
         let userId: string;
 
         // 1. Try Anonymous Auth
-        const { data: authData, error: authError } = await supabase.auth.signInAnonymously();
+        let authData: any = null;
+        let authError: any = null;
+        
+        try {
+          const result = await supabase.auth.signInAnonymously();
+          authData = result.data;
+          authError = result.error;
+        } catch (e: any) {
+          console.error("Auth Error:", e);
+          authError = { message: e.message || "Error de red al conectar con Supabase (fetch failed)." };
+        }
         
         if (authError) {
           console.warn("Auth Anónimo no disponible. Fallback UUID.", authError.message);
+          // Si es un error de fetch, probablemente la URL es inválida
+          if (authError.message.includes('fetch failed')) {
+            throw new Error("No se pudo conectar con Supabase. Verifica que NEXT_PUBLIC_SUPABASE_URL sea una URL válida de Supabase (ej: https://xyz.supabase.co) y no localhost.");
+          }
+          
           if (typeof crypto !== 'undefined' && crypto.randomUUID) {
             userId = crypto.randomUUID();
           } else {
@@ -107,6 +125,15 @@ export default function Home() {
 
   if (errorMsg || !sessionId || !sessionData) {
     const isMissingTable = errorMsg?.toLowerCase().includes('table') || errorMsg?.toLowerCase().includes('relation');
+    const isFetchFailed = errorMsg?.toLowerCase().includes('fetch failed');
+    
+    // Diagnóstico de variables de entorno
+    const envStatus = {
+      url: !!process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_URL !== 'undefined',
+      anonKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY !== 'undefined',
+      serviceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.SUPABASE_SERVICE_ROLE_KEY !== 'undefined',
+      geminiKey: !!process.env.NEXT_PUBLIC_GEMINI_API_KEY && process.env.NEXT_PUBLIC_GEMINI_API_KEY !== 'undefined',
+    };
 
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
@@ -117,8 +144,40 @@ export default function Home() {
             <p className="font-bold mb-1">Detalle del error:</p>
             <p>{errorMsg}</p>
           </div>
+
+          {/* Panel de Diagnóstico de Variables */}
+          <div className="mb-6 text-left bg-gray-50 p-4 rounded-lg border border-gray-200">
+            <p className="text-xs font-bold text-gray-500 uppercase mb-3">Estado de Configuración:</p>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="flex items-center gap-2">
+                <span className={`h-2 w-2 rounded-full ${envStatus.url ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                <span className="text-gray-600">URL de Supabase</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`h-2 w-2 rounded-full ${envStatus.anonKey ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                <span className="text-gray-600">Clave Anon (Public)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`h-2 w-2 rounded-full ${envStatus.serviceKey ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                <span className="text-gray-600">Clave Service Role</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`h-2 w-2 rounded-full ${envStatus.geminiKey ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                <span className="text-gray-600">API Key Gemini</span>
+              </div>
+            </div>
+          </div>
           
-          {isMissingTable ? (
+          {isFetchFailed ? (
+            <div className="text-left bg-blue-50 p-4 rounded-lg mb-6 border border-blue-100">
+              <p className="text-blue-800 font-bold text-sm mb-2">💡 Sugerencia para "fetch failed":</p>
+              <ul className="text-blue-700 text-xs list-disc pl-4 space-y-1">
+                <li>Verifica que <code>NEXT_PUBLIC_SUPABASE_URL</code> sea una URL válida (ej: <code>https://xyz.supabase.co</code>).</li>
+                <li>Asegúrate de que no tenga una barra diagonal <code>/</code> al final.</li>
+                <li>Confirma que no estés usando <code>localhost</code> o una IP local.</li>
+              </ul>
+            </div>
+          ) : isMissingTable ? (
             <div className="text-left bg-gray-900 rounded-lg p-4 mb-6 shadow-inner">
               <div className="flex justify-between items-center mb-2">
                 <p className="text-cyan-400 font-bold text-sm">Falta la tabla `sessions` en Supabase</p>
